@@ -27,15 +27,22 @@ int main(int argcount, char *argpass[])
 
     printf("File opened\n");
 
+    //stores the two numbers and checks if + was found
     long long number1 = 0;
     long long number2 = 0;
     int adding = 0;
+    int operation = '+';
+    //reads the numbers digit by digit
     int charc = fgetc(file);
 
     while (charc != EOF && charc != '\n')
     {
+        //Stack Overflow converting characters into numbers
+        //https://stackoverflow.com/questions/628761/convert-a-character-digit-to-the-corresponding-integer-in-c
+
         if (charc >= '0' && charc <= '9')
         {
+             //multiply by 10 to allow numbers with more than one digit
             if (adding == 0)
             {
                 number1 = number1 * 10 + (charc - '0');
@@ -45,15 +52,32 @@ int main(int argcount, char *argpass[])
                 number2 = number2 * 10 + (charc - '0');
             }
         }
-
+        //after + the digits go into the second number
         if (charc == '+')
         {
             adding = 1;
+            operation = '+';
         }
+
+        if (charc == '-')
+{
+         adding = 1;
+         operation = '-';
+}
 
         charc = fgetc(file);
     }
-    printf("Result: %lld\n", number1 + number2);
+
+     //checks which operation to calculate
+    if (operation == '+')
+    {
+        printf("Result: %lld\n", number1 + number2);
+    }
+
+    if (operation == '-')
+    {
+        printf("Result: %lld\n", number1 - number2);
+    }
 
     fclose(file);
 
