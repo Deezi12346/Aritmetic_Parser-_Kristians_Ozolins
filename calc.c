@@ -16,7 +16,6 @@ int main(int argcount, char *argpass[])
 
     printf("File: %s\n", argpass[1]);
 
-    return 0;
 FILE *file = fopen(argpass[1], "r");
 
     //checks if file could be opened
@@ -28,7 +27,16 @@ FILE *file = fopen(argpass[1], "r");
 
     printf("File opened\n");
 
-    fclose(file);
+   
+    int charc;
+    int charc = fgetc(file);
 
+    while (charc != EOF)
+    {
+        putchar(charc);
+        charc = fgetc(file);
+    }
+    fclose(file;
+    
     return 0;
 }
