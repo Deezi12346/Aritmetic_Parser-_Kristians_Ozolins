@@ -39,4 +39,8 @@ FILE *file = fopen(argpass[1], "r");
     fclose(file;
     
     return 0;
-}
+
+    long number1 = 0;
+ l  long number2 = 0;
+    int adding = 0;
+    int charc = fgetc(file);
