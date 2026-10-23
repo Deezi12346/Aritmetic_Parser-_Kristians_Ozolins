@@ -1,22 +1,22 @@
 
 // Kristians Ozolins 251RDC075
 // https://github.com/Deezi12346/Aritmetic_Parser-_Kristians_Ozolins
+
 #include <stdio.h>
 
 int main(int argcount, char *argpass[])
 {
-    //argcount is for argument count and argpass is how many arguments passed
+    //argcount counts arguments and argpass stores them
     if (argcount < 2)
     {
-        //checks whether filename was given 
+        //checks whether filename was given
         fprintf(stderr, "No input file\n");
         return 1;
-        // prints error if no filename was given
     }
 
     printf("File: %s\n", argpass[1]);
 
-FILE *file = fopen(argpass[1], "r");
+    FILE *file = fopen(argpass[1], "r");
 
     //checks if file could be opened
     if (file == NULL)
@@ -27,20 +27,36 @@ FILE *file = fopen(argpass[1], "r");
 
     printf("File opened\n");
 
-   
-    int charc;
-    int charc = fgetc(file);
-
-    while (charc != EOF)
-    {
-        putchar(charc);
-        charc = fgetc(file);
-    }
-    fclose(file;
-    
-    return 0;
-
-    long number1 = 0;
- l  long number2 = 0;
+    long long number1 = 0;
+    long long number2 = 0;
     int adding = 0;
     int charc = fgetc(file);
+
+    while (charc != EOF && charc != '\n')
+    {
+        if (charc >= '0' && charc <= '9')
+        {
+            if (adding == 0)
+            {
+                number1 = number1 * 10 + (charc - '0');
+            }
+            else
+            {
+                number2 = number2 * 10 + (charc - '0');
+            }
+        }
+
+        if (charc == '+')
+        {
+            adding = 1;
+        }
+
+        charc = fgetc(file);
+    }
+    printf("Result: %lld\n", number1 + number2);
+
+    fclose(file);
+
+    return 0;
+}
+
