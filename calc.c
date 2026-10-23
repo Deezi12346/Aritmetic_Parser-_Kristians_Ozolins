@@ -17,4 +17,18 @@ int main(int argcount, char *argpass[])
     printf("File: %s\n", argpass[1]);
 
     return 0;
+FILE *file = fopen(argpass[1], "r");
+
+    //checks if file could be opened
+    if (file == NULL)
+    {
+        fprintf(stderr, "Cannot open file\n");
+        return 1;
+    }
+
+    printf("File opened\n");
+
+    fclose(file);
+
+    return 0;
 }
