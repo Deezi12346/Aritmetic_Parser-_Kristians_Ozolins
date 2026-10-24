@@ -3,6 +3,7 @@
 // https://github.com/Deezi12346/Aritmetic_Parser-_Kristians_Ozolins
 
 #include <stdio.h>
+#include <string.h>
 
 int main(int argcount, char *argpass[])
 {
@@ -34,12 +35,21 @@ int main(int argcount, char *argpass[])
     int operation = '+';
     //reads the numbers digit by digit
     int charc = fgetc(file);
+    long long position = 1;
 
     while (charc != EOF && charc != '\n')
     {
         //Stack Overflow converting characters into numbers
         //https://stackoverflow.com/questions/628761/convert-a-character-digit-to-the-corresponding-integer-in-c
 
+        //checks if character is allowed
+        //ChatGPT used here for invalid character check
+        if (charc == 0 || strchr("0123456789 +-*/\t", charc) == NULL)
+        {
+            printf("ERROR:%lld\n", position);
+            fclose(file);
+            return 0;
+        }
         if (charc >= '0' && charc <= '9')
         {
              //multiply by 10 to allow numbers with more than one digit
@@ -77,6 +87,7 @@ int main(int argcount, char *argpass[])
             operation = '/';
         }
 
+        position++;
         charc = fgetc(file);
     }
 
