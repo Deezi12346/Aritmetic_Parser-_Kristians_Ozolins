@@ -1,6 +1,9 @@
 
 // Kristians Ozolins 251RDC075
 // https://github.com/Deezi12346/Aritmetic_Parser-_Kristians_Ozolins
+// Tools used and links:
+//https://stackoverflow.com/questions/64596361/evaluate-a-simple-mathematical-expression-with-limited-tools-no-arrays-and-no/64597676#64597676
+//https://stackoverflow.com/questions/63854654/parsing-simple-mathematical-expressions
 
 #include <stdio.h>
 #include <string.h>
@@ -36,6 +39,7 @@ int main(int argcount, char *argpass[])
     //reads the numbers digit by digit
     int charc = fgetc(file);
     long long position = 1;
+    int neednumber = 1;
 
     while (charc != EOF && charc != '\n')
     {
@@ -52,6 +56,7 @@ int main(int argcount, char *argpass[])
         }
         if (charc >= '0' && charc <= '9')
         {
+        neednumber = 0;
              //multiply by 10 to allow numbers with more than one digit
             if (adding == 0)
             {
@@ -62,6 +67,49 @@ int main(int argcount, char *argpass[])
                 number2 = number2 * 10 + (charc - '0');
             }
         }
+        // Used these two discussions with similiar code for this part
+        //https://stackoverflow.com/a/64597676
+        //https://stackoverflow.com/questions/63854654/parsing-simple-mathematical-expressions
+        //checks for missing numbers and calculates previous operation
+
+        if (charc == '+' || charc == '-' || charc == '*' || charc == '/')
+        {
+            if (neednumber == 1)
+            {
+                printf("ERROR:%lld\n", position);
+                fclose(file);
+                return 0;
+            }
+
+            if (adding == 1)
+            {
+                if (operation == '+')
+                    number1 = number1 + number2;
+
+                if (operation == '-')
+                    number1 = number1 - number2;
+
+                if (operation == '*')
+                    number1 = number1 * number2;
+
+                if (operation == '/')
+                {
+                    if (number2 == 0)
+                    {
+                        fprintf(stderr, "Cannot divide by zero\n");
+                        fclose(file);
+                        return 1;
+                    }
+
+                    number1 = number1 / number2;
+                }
+
+                number2 = 0;
+            }
+
+            neednumber = 1;
+        }
+
         //after + the digits go into the second number
         if (charc == '+')
         {
@@ -90,6 +138,12 @@ int main(int argcount, char *argpass[])
         position++;
         charc = fgetc(file);
     }
+    if (neednumber == 1)
+{
+    printf("ERROR:%lld\n", position);
+    fclose(file);
+    return 0;
+}
 
      //checks which operation to calculate
     if (operation == '+')
