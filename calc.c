@@ -8,6 +8,12 @@
 #include <stdio.h>
 #include <string.h>
 
+//converts a digit character into part of a number
+long long addDigit(long long number, int charc)
+{
+    return number * 10 + (charc - '0');
+}
+
 int main(int argcount, char *argpass[])
 {
     //argcount counts arguments and argpass stores them
@@ -34,6 +40,7 @@ int main(int argcount, char *argpass[])
     //stores the two numbers and checks if + was found
     long long number1 = 0;
     long long number2 = 0;
+    long long totalnumber = 0;
     int adding = 0;
     int operation = '+';
     //reads the numbers digit by digit
@@ -60,11 +67,11 @@ int main(int argcount, char *argpass[])
              //multiply by 10 to allow numbers with more than one digit
             if (adding == 0)
             {
-                number1 = number1 * 10 + (charc - '0');
+                number1 = addDigit(number1, charc);
             }
             else
             {
-                number2 = number2 * 10 + (charc - '0');
+                number2 = addDigit(number2, charc);
             }
         }
         // Used these two discussions with similiar code for this part
@@ -81,31 +88,43 @@ int main(int argcount, char *argpass[])
                 return 0;
             }
 
-            if (adding == 1)
+            
+        if (adding == 1)
+        {
+            //save addition and subtraction for later
+            if (operation == '+')
             {
-                if (operation == '+')
-                    number1 = number1 + number2;
+                total = total + number1;
+                number1 = number2;
+            }
 
-                if (operation == '-')
-                    number1 = number1 - number2;
+            if (operation == '-')
+            {
+                total = total + number1;
+                number1 = -number2;
+            }
 
-                if (operation == '*')
-                    number1 = number1 * number2;
+            //calculate multiplication and division first
+            if (operation == '*')
+            {
+                number1 = number1 * number2;
+            }
 
-                if (operation == '/')
+            if (operation == '/')
+            {
+                if (number2 == 0)
                 {
-                    if (number2 == 0)
-                    {
-                        fprintf(stderr, "Cannot divide by zero\n");
-                        fclose(file);
-                        return 1;
-                    }
-
-                    number1 = number1 / number2;
+                    fprintf(stderr, "Cannot divide by zero\n");
+                    fclose(file);
+                    return 1;
                 }
 
-                number2 = 0;
+                number1 = number1 / number2;
             }
+
+            number2 = 0;
+        }
+
 
             neednumber = 1;
         }
@@ -148,17 +167,17 @@ int main(int argcount, char *argpass[])
      //checks which operation to calculate
     if (operation == '+')
     {
-        printf("Result: %lld\n", number1 + number2);
+        printf("Result: %lld\n", total + number1 + number2);
     }
 
     if (operation == '-')
     {
-        printf("Result: %lld\n", number1 - number2);
+        printf("Result: %lld\n", total + number1 - number2);
     }
 
     if (operation == '*')
     {
-        printf("Result: %lld\n", number1 * number2);
+        printf("Result: %lld\n", total + number1 * number2);
     }
 
     if (operation == '/')
@@ -170,7 +189,7 @@ int main(int argcount, char *argpass[])
             return 1;
         }
 
-        printf("Result: %lld\n", number1 / number2);
+        printf("Result: %lld\n", total + number1 / number2);
     }
 
     
