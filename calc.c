@@ -63,7 +63,19 @@ int main(int argcount, char *argpass[])
 {
          adding = 1;
          operation = '-';
-}
+
+        }
+        if (charc == '*')
+        {
+            adding = 1;
+            operation = '*';
+        }
+
+        if (charc == '/')
+        {
+            adding = 1;
+            operation = '/';
+        }
 
         charc = fgetc(file);
     }
@@ -79,6 +91,24 @@ int main(int argcount, char *argpass[])
         printf("Result: %lld\n", number1 - number2);
     }
 
+    if (operation == '*')
+    {
+        printf("Result: %lld\n", number1 * number2);
+    }
+
+    if (operation == '/')
+    {
+        if (number2 == 0)
+        {
+            fprintf(stderr, "Cannot divide by zero\n");
+            fclose(file);
+            return 1;
+        }
+
+        printf("Result: %lld\n", number1 / number2);
+    }
+
+    
     fclose(file);
 
     return 0;
