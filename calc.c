@@ -2,12 +2,25 @@
 // https://github.com/Deezi12346/Aritmetic_Parser-_Kristians_Ozolins
 // Compile with: gcc -O2 -Wall -Wextra -std=c17 -o calc calc.c -lm
 // Resources used: OpenAI ChatGPT ; Stack Overflow (links below)
+// https://chatgpt.com/share/6ade85a9-f638-83ed-8d5f-b4642f67946e
+// ChatGPT assistance documented in the shared conversation above.
+// Actual prompts from that conversation (quoted):
+// - "Im making an arithmetic parser and i need to add invalid character check"
+// - "Could I just use string h library and do it that way?"
+// - "What about the positon thought? should it be added?"
+// - "Can you help me with parentheses?"
+// - "The parser can handle simple expressions but when we get into ** it breaks"
+// These prompts led to discussions of character validation, error positions,
+// recursive descent and operator precedence. Earlier code was revised later.
+// Other AI assistance discussed in subsequent messages: output files,
+// multiple expressions, directory mode, floats and overflow checks.
 // https://stackoverflow.com/questions/628761/convert-a-character-digit-to-the-corresponding-integer-in-c
 // https://stackoverflow.com/a/64597676
 // https://stackoverflow.com/questions/63854654/parsing-simple-mathematical-expressions
-// https://stackoverflow.com/questions/7430248/creating-a-new-directory-in-c?
-// https://stackoverflow.com/questions/4293475/reading-c-file-line-by-line-using-fgetc?
-// https://stackoverflow.com/questions/11836064/c-creating-new-file-extensions-based-on-a-filename?
+// https://stackoverflow.com/questions/7430248/creating-a-new-directory-in-c
+// https://stackoverflow.com/questions/4293475/reading-c-file-line-by-line-using-fgetc
+// https://stackoverflow.com/questions/11836064/c-creating-new-file-extensions-based-on-a-filename
+
 
 #include <stdio.h>
 #include <string.h>
@@ -15,19 +28,48 @@
 #include <errno.h>
 #include <sys/stat.h>
 #include <dirent.h>
+#include <math.h>
 
 //builds numbers digit by digit without needing to store a whole line
 long long addDigit(long long number, int charc)
 {
     return number * 10 + (charc - '0');
 }
+//keeps integer results as integers, and decimal results as doubles
+// AI assistance: discussed using both long long and double to preserve integer division.
+typedef struct
+{
+    long long integer;
+    double decimal;
+    int isFloat;
+} Value;
+
+Value makeInt(long long number)
+{
+    Value result;
+    result.integer = number;
+    result.decimal = (double)number;
+    result.isFloat = 0;
+    return result;
+}
+
+Value makeFloat(double number)
+{
+    Value result;
+    result.integer = 0;
+    result.decimal = number;
+    result.isFloat = 1;
+    return result;
+}
+
 //variables used by the parser
 FILE *file;
 int charc;
 long long position = 1;
-long long errorPosition = 0;
+long long errorPosition = 0; //-1 means allocation failure, not an expression error
 
 //counts every character read, including newlines and comment text
+// AI assistance: discussed recording 1-based positions for invalid input.
 void nextChar(void)
 {
     if (charc != EOF)
@@ -37,30 +79,60 @@ void nextChar(void)
     }
 }
 
-//skip spaces and tabs without crossing the current line
+//skip spaces, tabs and carriage returns without crossing the current line
 void skipSpaces(void)
 {
-    while (charc == ' ' || charc == '\t')
+    while (charc == ' ' || charc == '\t' || charc == '\r')
     {
         nextChar();
     }
 }
 
-long long expression(void);
-long long primary(void)
+// AI assistance: discussed recursive descent to support nested parentheses.
+// The parser was later extended into primary, power, term and expression.
+Value expression(void);
+// AI assistance: extended number reading to floats with strtod and error positions.
+Value primary(void)
 {
     skipSpaces();
 
     if (charc >= '0' && charc <= '9')
     {
-        long long number = 0;
-
-        while (charc >= '0' && charc <= '9')
+        long long numberPosition = position;
+        size_t length = 0, size = 32;
+        char *text = malloc(size);
+        int isFloat = 0;
+        if (text == NULL) { errorPosition = -1; return makeInt(0); }
+        while ((charc >= '0' && charc <= '9') || (charc == '.' && !isFloat))
         {
-            number = addDigit(number, charc);
+            if (length == size - 1) //doubling keeps long numbers efficient
+            {
+                if (size > (size_t)-1 / 2) { free(text); errorPosition = -1; return makeInt(0); }
+                char *newText = realloc(text, size * 2);
+                if (newText == NULL) { free(text); errorPosition = -1; return makeInt(0); }
+                text = newText;
+                size = size * 2;
+            }
+            int wasDot = charc == '.';
+            long long dotPosition = position;
+            text[length] = (char)charc;
+            length = length + 1;
             nextChar();
+            if (wasDot) isFloat = 1;
+            if (wasDot && (charc < '0' || charc > '9'))
+            {
+                free(text); errorPosition = dotPosition; return makeInt(0);
+            }
         }
-
+        text[length] = '\0';
+        //Convert decimals once with strtod; integers keep all 64 bits.
+        errno = 0;
+        Value number = isFloat ? makeFloat(strtod(text, NULL)) : makeInt(strtoll(text, NULL, 10));
+        if ((isFloat && !isfinite(number.decimal)) || (!isFloat && errno == ERANGE))
+        {
+            errorPosition = numberPosition;
+        }
+        free(text);
         return number;
     }
 
@@ -69,11 +141,11 @@ long long primary(void)
         nextChar();
 
         //calculate everything inside the parentheses
-        long long number = expression();
+        Value number = expression();
 
         if (errorPosition != 0)
         {
-            return 0;
+            return makeInt(0);
         }
 
         skipSpaces();
@@ -82,7 +154,7 @@ long long primary(void)
         {
             //current position is where a closing parenthesis was expected
             errorPosition = position;
-            return 0;
+            return makeInt(0);
         }
 
         nextChar();
@@ -90,9 +162,11 @@ long long primary(void)
     }
 
     errorPosition = position;
-    return 0;
+    return makeInt(0);
 }
 //look for a second *, then put the character back with ungetc
+// AI assistance: user's ** question led to adding a power parsing level.
+// Later discussion covered recognizing ** using fgetc and ungetc.
 int doubleStar(void)
 {
     if (charc != '*')
@@ -110,63 +184,89 @@ int doubleStar(void)
 }
 
 //power has higher priority than multiplication and division
-long long power(void)
+// AI assistance: right-associative powers, float powers and overflow checks.
+Value power(void)
 {
-    long long number = primary();
+    Value number = primary();
 
     if (errorPosition != 0)
     {
-        return 0;
+        return makeInt(0);
     }
 
     skipSpaces();
 
     if (doubleStar())
     {
+        long long operationPosition = position;
         nextChar(); //first *
         nextChar(); //second *
         skipSpaces();
 
         long long exponentPosition = position;
-        long long exponent = power(); //right-associative: 2**3**2 is 2**(3**2)
+        Value exponent = power(); //right-associative: 2**3**2 is 2**(3**2)
 
         if (errorPosition != 0)
         {
-            return 0;
+            return makeInt(0);
         }
 
-        if (exponent < 0)
+        //negative integer exponents are not allowed unless a float is involved
+        if (!number.isFloat && !exponent.isFloat && exponent.integer < 0)
         {
             errorPosition = exponentPosition;
-            return 0;
+            return makeInt(0);
+        }
+
+        if (number.isFloat || exponent.isFloat)
+        {
+            double answer = pow(number.decimal, exponent.decimal);
+            if (!isfinite(answer))
+            {
+                //NaN or infinity is an error at the ** operator
+                errorPosition = operationPosition;
+                return makeInt(0);
+            }
+            return makeFloat(answer);
         }
 
         //square the base to calculate large exponents without a very long loop
         long long answer = 1;
-        while (exponent > 0)
+        long long base = number.integer;
+        long long times = exponent.integer;
+        while (times > 0)
         {
-            if (exponent % 2 == 1)
+            if (times % 2 == 1)
             {
-                answer = answer * number;
+                if (__builtin_mul_overflow(answer, base, &answer))
+                {
+                    errorPosition = operationPosition;
+                    return makeInt(0);
+                }
             }
 
-            exponent = exponent / 2;
-            if (exponent > 0)
+            times = times / 2;
+            if (times > 0)
             {
-                number = number * number;
+                if (__builtin_mul_overflow(base, base, &base))
+                {
+                    errorPosition = operationPosition;
+                    return makeInt(0);
+                }
             }
         }
 
-        return answer;
+        return makeInt(answer);
     }
 
     return number;
 }
 
 //term uses power so ** is calculated before * and /
-long long term(void)
+// AI assistance: mixed integer/float arithmetic, keeping integer division.
+Value term(void)
 {
-    long long number = power();
+    Value number = power();
 
     while (errorPosition == 0)
     {
@@ -178,31 +278,67 @@ long long term(void)
         }
 
         int operation = charc;
+        long long operationPosition = position;
         nextChar();
         skipSpaces();
 
         long long rightPosition = position;
-        long long number2 = power();
+        Value number2 = power();
 
         if (errorPosition != 0)
         {
-            return 0;
+            return makeInt(0);
         }
 
         if (operation == '*')
         {
-            number = number * number2;
+            if (number.isFloat || number2.isFloat)
+            {
+                number = makeFloat(number.decimal * number2.decimal);
+                if (!isfinite(number.decimal))
+                {
+                    errorPosition = operationPosition;
+                    return makeInt(0);
+                }
+            }
+            else
+            {
+                long long answer;
+                if (__builtin_mul_overflow(number.integer, number2.integer, &answer))
+                {
+                    errorPosition = operationPosition;
+                    return makeInt(0);
+                }
+                number = makeInt(answer);
+            }
         }
         else
         {
-            if (number2 == 0)
+            if (number2.decimal == 0.0)
             {
                 //division by zero is reported at the right operand
                 errorPosition = rightPosition;
-                return 0;
+                return makeInt(0);
             }
 
-            number = number / number2;
+            if (number.isFloat || number2.isFloat)
+            {
+                number = makeFloat(number.decimal / number2.decimal);
+                if (!isfinite(number.decimal))
+                {
+                    errorPosition = operationPosition;
+                    return makeInt(0);
+                }
+            }
+            else
+            {
+                if (number.integer == (-9223372036854775807LL - 1) && number2.integer == -1)
+                {
+                    errorPosition = operationPosition;
+                    return makeInt(0);
+                }
+                number = makeInt(number.integer / number2.integer);
+            }
         }
     }
 
@@ -210,9 +346,9 @@ long long term(void)
 }
 
 //expression uses term so * and / are calculated before + and -
-long long expression(void)
+Value expression(void)
 {
-    long long number = term();
+    Value number = term();
 
     while (errorPosition == 0)
     {
@@ -224,30 +360,59 @@ long long expression(void)
         }
 
         int operation = charc;
+        long long operationPosition = position;
         nextChar();
 
-        long long number2 = term();
+        Value number2 = term();
 
         if (errorPosition != 0)
         {
-            return 0;
+            return makeInt(0);
         }
 
-        if (operation == '+')
+        if (number.isFloat || number2.isFloat)
         {
-            number = number + number2;
+            if (operation == '+')
+            {
+                number = makeFloat(number.decimal + number2.decimal);
+            }
+            else
+            {
+                number = makeFloat(number.decimal - number2.decimal);
+            }
+
+            if (!isfinite(number.decimal))
+            {
+                errorPosition = operationPosition;
+                return makeInt(0);
+            }
         }
         else
         {
-            number = number - number2;
+            long long answer;
+            int overflow;
+            if (operation == '+')
+            {
+                overflow = __builtin_add_overflow(number.integer, number2.integer, &answer);
+            }
+            else
+            {
+                overflow = __builtin_sub_overflow(number.integer, number2.integer, &answer);
+            }
+            if (overflow)
+            {
+                errorPosition = operationPosition;
+                return makeInt(0);
+            }
+            number = makeInt(answer);
         }
     }
 
     return number;
 }
 
-//AI (ChatGPT): prompt "Add -d and --dir to my existing C parser, preserving my code and comments"
 //same file calculation for one input file or each .txt file in a folder
+// AI assistance: output files, multiline processing and first-error reporting.
 int processFile(const char *inputName, const char *outputDir)
 {
     file = fopen(inputName, "r");
@@ -301,146 +466,16 @@ int processFile(const char *inputName, const char *outputDir)
     errorPosition = 0;
     charc = fgetc(file);
 
-    // OLD CALCULATOR VERSION - kept for reference
-    //    long long number1 = 0;
-    //    long long number2 = 0;
-    //    long long totalnumber = 0;
-    //    int adding = 0;
-    //    int operation = '+';
-    //    int neednumber = 1;
-    //
-    //    while (charc != EOF && charc != '\n')
-    //    {
-    //        //Stack Overflow converting characters into numbers
-    //        //https://stackoverflow.com/questions/628761/convert-a-character-digit-to-the-corresponding-integer-in-c
-    //
-    //        //checks if character is allowed
-    //        //ChatGPT used here for invalid character check
-    //        if (charc == 0 || strchr("0123456789 +-*/\t", charc) == NULL)
-    //        {
-    //            printf("ERROR:%lld\n", position);
-    //            fclose(file);
-    //            return 0;
-    //        }
-    //        if (charc >= '0' && charc <= '9')
-    //        {
-    //            neednumber = 0;
-    //            //multiply by 10 to allow numbers with more than one digit
-    //            if (adding == 0)
-    //            {
-    //                number1 = addDigit(number1, charc);
-    //            }
-    //            else
-    //            {
-    //                number2 = addDigit(number2, charc);
-    //            }
-    //        }
-    //        // Used these two discussions with similar code for this part
-    //        //https://stackoverflow.com/a/64597676
-    //        //https://stackoverflow.com/questions/63854654/parsing-simple-mathematical-expressions
-    //        //checks for missing numbers and calculates previous operation
-    //        if (charc == '+' || charc == '-' || charc == '*' || charc == '/')
-    //        {
-    //            if (neednumber == 1)
-    //            {
-    //                printf("ERROR:%lld\n", position);
-    //                fclose(file);
-    //                return 0;
-    //            }
-    //
-    //            if (adding == 1)
-    //            {
-    //                //save addition and subtraction for later
-    //                if (operation == '+')
-    //                {
-    //                    totalnumber = totalnumber + number1;
-    //                    number1 = number2;
-    //                }
-    //                if (operation == '-')
-    //                {
-    //                    totalnumber = totalnumber + number1;
-    //                    number1 = -number2;
-    //                }
-    //                //calculate multiplication and division first
-    //                if (operation == '*')
-    //                {
-    //                    number1 = number1 * number2;
-    //                }
-    //                if (operation == '/')
-    //                {
-    //                    if (number2 == 0)
-    //                    {
-    //                        fprintf(stderr, "Cannot divide by zero\n");
-    //                        fclose(file);
-    //                        return 1;
-    //                    }
-    //                    number1 = number1 / number2;
-    //                }
-    //                number2 = 0;
-    //            }
-    //            neednumber = 1;
-    //        }
-    //
-    //        //after + the digits go into the second number
-    //        if (charc == '+')
-    //        {
-    //            adding = 1;
-    //            operation = '+';
-    //        }
-    //        if (charc == '-')
-    //        {
-    //            adding = 1;
-    //            operation = '-';
-    //        }
-    //        if (charc == '*')
-    //        {
-    //            adding = 1;
-    //            operation = '*';
-    //        }
-    //        if (charc == '/')
-    //        {
-    //            adding = 1;
-    //            operation = '/';
-    //        }
-    //        position++;
-    //        charc = fgetc(file);
-    //    }
-    //    if (neednumber == 1)
-    //    {
-    //        printf("ERROR:%lld\n", position);
-    //        fclose(file);
-    //        return 0;
-    //    }
-    //
-    //    //checks which operation to calculate
-    //    if (operation == '+')
-    //    {
-    //        printf("Result: %lld\n", totalnumber + number1 + number2);
-    //    }
-    //    if (operation == '-')
-    //    {
-    //        printf("Result: %lld\n", totalnumber + number1 - number2);
-    //    }
-    //    if (operation == '*')
-    //    {
-    //        printf("Result: %lld\n", totalnumber + number1 * number2);
-    //    }
-    //    if (operation == '/')
-    //    {
-    //        if (number2 == 0)
-    //        {
-    //            fprintf(stderr, "Cannot divide by zero\n");
-    //            fclose(file);
-    //            return 1;
-    //        }
-    //        printf("Result: %lld\n", totalnumber + number1 / number2);
-    //    }
-    // END OF OLD CALCULATOR VERSION
-
 
     while (charc != EOF && errorPosition == 0)
     {
         skipSpaces();
+
+        //a final line with only spaces is also blank
+        if (charc == EOF)
+        {
+            break;
+        }
 
         //blank line: no result
         if (charc == '\n')
@@ -464,7 +499,7 @@ int processFile(const char *inputName, const char *outputDir)
             continue;
         }
 
-        long long result = expression();
+        Value result = expression();
         skipSpaces();
 
         //anything after the expression on its line is an error
@@ -478,7 +513,17 @@ int processFile(const char *inputName, const char *outputDir)
             break;
         }
 
-        if (fprintf(output, "%lld\n", result) < 0)
+        //integer operations stay integer, decimal operations print up to 15 digits
+        int written;
+        if (result.isFloat)
+        {
+            written = fprintf(output, "%.15g\n", result.decimal);
+        }
+        else
+        {
+            written = fprintf(output, "%lld\n", result.integer);
+        }
+        if (written < 0)
         {
             fprintf(stderr, "Cannot write output file\n");
             fclose(output);
@@ -494,7 +539,7 @@ int processFile(const char *inputName, const char *outputDir)
     }
 
     //If any expression is invalid, remove earlier results and write only ERROR.
-    if (errorPosition != 0)
+    if (errorPosition > 0)
     {
         if (fclose(output) != 0)
         {
@@ -517,7 +562,7 @@ int processFile(const char *inputName, const char *outputDir)
         }
     }
 
-    int failed = ferror(file);
+    int failed = ferror(file) || errorPosition < 0;
     if (fclose(output) != 0)
     {
         failed = 1;
@@ -531,11 +576,12 @@ int processFile(const char *inputName, const char *outputDir)
 
     if (failed)
     {
-        fprintf(stderr, "File reading or writing failed\n");
+        fprintf(stderr, "%s\n", errorPosition < 0 ? "Memory allocation failed" : "File reading or writing failed");
         return 1;
     }
     return 0;
 }
+// AI assistance: directory mode with -d/--dir and -o/--output-dir options.
 int main(int argcount, char *argpass[])
 {
     const char *inputName = NULL;
@@ -576,6 +622,13 @@ int main(int argcount, char *argpass[])
         {
             inputName = argpass[i];
         }
+    }
+
+    //show the required error when no input was given
+    if (inputName == NULL && inputDir == NULL)
+    {
+        fprintf(stderr, "No input file\n");
+        return 1;
     }
 
     if ((inputName == NULL && inputDir == NULL) ||
@@ -629,6 +682,20 @@ int main(int argcount, char *argpass[])
         if (errno != EEXIST || stat(outputDir, &info) != 0 || !S_ISDIR(info.st_mode))
         {
             fprintf(stderr, "Cannot create output folder\n");
+            free(defaultDir);
+            return 1;
+        }
+    }
+
+    //do not process our own output files in directory mode
+    if (inputDir != NULL)
+    {
+        struct stat inputInfo;
+        struct stat outputInfo;
+        if (stat(inputDir, &inputInfo) == 0 && stat(outputDir, &outputInfo) == 0 &&
+            inputInfo.st_dev == outputInfo.st_dev && inputInfo.st_ino == outputInfo.st_ino)
+        {
+            fprintf(stderr, "Input and output directories must be different\n");
             free(defaultDir);
             return 1;
         }
