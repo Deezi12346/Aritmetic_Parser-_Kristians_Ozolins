@@ -14,6 +14,7 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <sys/stat.h>
+#include <dirent.h>
 
 //builds numbers digit by digit without needing to store a whole line
 long long addDigit(long long number, int charc)
@@ -245,29 +246,10 @@ long long expression(void)
     return number;
 }
 
-int main(int argcount, char *argpass[])
+//AI (ChatGPT): prompt "Add -d and --dir to my existing C parser, preserving my code and comments"
+//same file calculation for one input file or each .txt file in a folder
+int processFile(const char *inputName, const char *outputDir)
 {
-    const char *inputName;
-    const char *outputDir = NULL;
-
-    //start with a single file and directory input (-d) will be added later
-    if (argcount == 2 && argpass[1][0] != '-')
-    {
-        inputName = argpass[1];
-    }
-    else if (argcount == 4 &&
-             (strcmp(argpass[1], "-o") == 0 || strcmp(argpass[1], "--output-dir") == 0) &&
-             argpass[2][0] != '\0' && argpass[3][0] != '-')
-    {
-        outputDir = argpass[2];
-        inputName = argpass[3];
-    }
-    else
-    {
-        fprintf(stderr, "Usage: calc [-o OUTDIR] input.txt\n");
-        return 1;
-    }
-
     file = fopen(inputName, "r");
     if (file == NULL)
     {
@@ -292,41 +274,11 @@ int main(int argcount, char *argpass[])
         nameLength = nameLength - 4;
     }
 
-    char *defaultDir = NULL;
-    if (outputDir == NULL)
-    {
-        size_t folderSize = nameLength + 40;
-        defaultDir = malloc(folderSize);
-        if (defaultDir == NULL)
-        {
-            fprintf(stderr, "Memory allocation failed\n");
-            fclose(file);
-            return 1;
-        }
-
-        snprintf(defaultDir, folderSize, "%.*s_kristians_251RDC075", (int)nameLength, name);
-        outputDir = defaultDir;
-    }
-
-    //create the output folder but allow an existing directory too
-    if (mkdir(outputDir, 0777) != 0)
-    {
-        struct stat info;
-        if (errno != EEXIST || stat(outputDir, &info) != 0 || !S_ISDIR(info.st_mode))
-        {
-            fprintf(stderr, "Cannot create output folder\n");
-            free(defaultDir);
-            fclose(file);
-            return 1;
-        }
-    }
-
     size_t pathSize = strlen(outputDir) + nameLength + 60;
     char *outputName = malloc(pathSize);
     if (outputName == NULL)
     {
         fprintf(stderr, "Memory allocation failed\n");
-        free(defaultDir);
         fclose(file);
         return 1;
     }
@@ -339,12 +291,14 @@ int main(int argcount, char *argpass[])
     {
         fprintf(stderr, "Cannot write output file\n");
         free(outputName);
-        free(defaultDir);
         fclose(file);
         return 1;
     }
 
     //nextChar also counts newlines and comments so positions do not reset
+    //positions start at 1 for each new file in directory mode
+    position = 1;
+    errorPosition = 0;
     charc = fgetc(file);
 
     // OLD CALCULATOR VERSION - kept for reference
@@ -530,7 +484,6 @@ int main(int argcount, char *argpass[])
             fclose(output);
             fclose(file);
             free(outputName);
-            free(defaultDir);
             return 1;
         }
 
@@ -548,7 +501,6 @@ int main(int argcount, char *argpass[])
             fprintf(stderr, "Cannot write output file\n");
             fclose(file);
             free(outputName);
-            free(defaultDir);
             return 1;
         }
         output = fopen(outputName, "w");
@@ -561,7 +513,6 @@ int main(int argcount, char *argpass[])
             }
             fclose(file);
             free(outputName);
-            free(defaultDir);
             return 1;
         }
     }
@@ -577,7 +528,6 @@ int main(int argcount, char *argpass[])
     }
 
     free(outputName);
-    free(defaultDir);
 
     if (failed)
     {
@@ -585,4 +535,171 @@ int main(int argcount, char *argpass[])
         return 1;
     }
     return 0;
+}
+int main(int argcount, char *argpass[])
+{
+    const char *inputName = NULL;
+    const char *inputDir = NULL;
+    const char *outputDir = NULL;
+
+    //directory input was added after the single file version
+    //read the options in any order
+    for (int i = 1; i < argcount; i = i + 1)
+    {
+        if (strcmp(argpass[i], "-d") == 0 || strcmp(argpass[i], "--dir") == 0)
+        {
+            if (i + 1 >= argcount || inputDir != NULL)
+            {
+                fprintf(stderr, "Missing or repeated input directory\n");
+                return 1;
+            }
+            i = i + 1;
+            inputDir = argpass[i];
+        }
+        else if (strcmp(argpass[i], "-o") == 0 ||
+                 strcmp(argpass[i], "--output-dir") == 0)
+        {
+            if (i + 1 >= argcount || outputDir != NULL)
+            {
+                fprintf(stderr, "Missing or repeated output directory\n");
+                return 1;
+            }
+            i = i + 1;
+            outputDir = argpass[i];
+        }
+        else if (argpass[i][0] == '-' || inputName != NULL)
+        {
+            fprintf(stderr, "Unknown option or extra input\n");
+            return 1;
+        }
+        else
+        {
+            inputName = argpass[i];
+        }
+    }
+
+    if ((inputName == NULL && inputDir == NULL) ||
+        (inputName != NULL && inputDir != NULL) ||
+        (inputDir != NULL && inputDir[0] == '\0') ||
+        (outputDir != NULL && outputDir[0] == '\0'))
+    {
+        fprintf(stderr, "Usage: calc [-d DIR] [-o OUTDIR] [input.txt]\n");
+        return 1;
+    }
+
+    //take just the filename, without its folder and .txt ending
+    //the folder name is used with -d
+    char *defaultDir = NULL;
+    if (outputDir == NULL)
+    {
+        const char *path = inputDir != NULL ? inputDir : inputName;
+        size_t end = strlen(path);
+        while (end > 1 && path[end - 1] == '/')
+        {
+            end = end - 1;
+        }
+        size_t start = end;
+        while (start > 0 && path[start - 1] != '/')
+        {
+            start = start - 1;
+        }
+        size_t baseLength = end - start;
+        if (inputDir == NULL && baseLength >= 4 &&
+            strncmp(path + end - 4, ".txt", 4) == 0)
+        {
+            baseLength = baseLength - 4;
+        }
+
+        size_t size = baseLength + 40;
+        defaultDir = malloc(size);
+        if (defaultDir == NULL)
+        {
+            fprintf(stderr, "Memory allocation failed\n");
+            return 1;
+        }
+        snprintf(defaultDir, size, "%.*s_kristians_251RDC075",
+                 (int)baseLength, path + start);
+        outputDir = defaultDir;
+    }
+
+    //create the output folder but allow an existing directory too
+    if (mkdir(outputDir, 0777) != 0)
+    {
+        struct stat info;
+        if (errno != EEXIST || stat(outputDir, &info) != 0 || !S_ISDIR(info.st_mode))
+        {
+            fprintf(stderr, "Cannot create output folder\n");
+            free(defaultDir);
+            return 1;
+        }
+    }
+
+    int failed = 0;
+    if (inputDir == NULL)
+    {
+        failed = processFile(inputName, outputDir);
+    }
+    else
+    {
+        //Only look at .txt files directly inside this folder.
+        DIR *folder = opendir(inputDir);
+        if (folder == NULL)
+        {
+            fprintf(stderr, "Cannot open input directory\n");
+            free(defaultDir);
+            return 1;
+        }
+
+        struct dirent *entry;
+        while (1)
+        {
+            errno = 0;
+            entry = readdir(folder);
+            if (entry == NULL)
+            {
+                if (errno != 0)
+                {
+                    fprintf(stderr, "Cannot read input directory\n");
+                    failed = 1;
+                }
+                break;
+            }
+
+            size_t length = strlen(entry->d_name);
+            if (length < 5 || strcmp(entry->d_name + length - 4, ".txt") != 0)
+            {
+                continue;
+            }
+
+            size_t pathSize = strlen(inputDir) + length + 2;
+            char *path = malloc(pathSize);
+            if (path == NULL)
+            {
+                fprintf(stderr, "Memory allocation failed\n");
+                failed = 1;
+                break;
+            }
+            snprintf(path, pathSize, "%s/%s", inputDir, entry->d_name);
+
+            struct stat info;
+            if (stat(path, &info) == 0 && S_ISREG(info.st_mode))
+            {
+                if (processFile(path, outputDir) != 0)
+                {
+                    failed = 1;
+                    free(path);
+                    break;
+                }
+            }
+            free(path);
+        }
+        if (closedir(folder) != 0)
+        {
+            fprintf(stderr, "Cannot close input directory\n");
+            failed = 1;
+        }
+    }
+
+    free(defaultDir);
+    return failed;
 }
