@@ -1,14 +1,21 @@
-
 // Kristians Ozolins 251RDC075
 // https://github.com/Deezi12346/Aritmetic_Parser-_Kristians_Ozolins
-// Tools used and links:
-//https://stackoverflow.com/questions/64596361/evaluate-a-simple-mathematical-expression-with-limited-tools-no-arrays-and-no/64597676#64597676
-//https://stackoverflow.com/questions/63854654/parsing-simple-mathematical-expressions
+// Compile with: gcc -O2 -Wall -Wextra -std=c17 -o calc calc.c -lm
+// Resources used: OpenAI ChatGPT ; Stack Overflow (links below)
+// https://stackoverflow.com/questions/628761/convert-a-character-digit-to-the-corresponding-integer-in-c
+// https://stackoverflow.com/a/64597676
+// https://stackoverflow.com/questions/63854654/parsing-simple-mathematical-expressions
+// https://stackoverflow.com/questions/7430248/creating-a-new-directory-in-c?
+// https://stackoverflow.com/questions/4293475/reading-c-file-line-by-line-using-fgetc?
+// https://stackoverflow.com/questions/11836064/c-creating-new-file-extensions-based-on-a-filename?
 
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+#include <errno.h>
+#include <sys/stat.h>
 
-//converts a digit character into part of a number
+//builds numbers digit by digit without needing to store a whole line
 long long addDigit(long long number, int charc)
 {
     return number * 10 + (charc - '0');
@@ -19,7 +26,7 @@ int charc;
 long long position = 1;
 long long errorPosition = 0;
 
-//reads the next character
+//counts every character read, including newlines and comment text
 void nextChar(void)
 {
     if (charc != EOF)
@@ -29,7 +36,7 @@ void nextChar(void)
     }
 }
 
-//skips spaces
+//skip spaces and tabs without crossing the current line
 void skipSpaces(void)
 {
     while (charc == ' ' || charc == '\t')
@@ -39,8 +46,6 @@ void skipSpaces(void)
 }
 
 long long expression(void);
-
-//reads numbers or parentheses
 long long primary(void)
 {
     skipSpaces();
@@ -74,6 +79,7 @@ long long primary(void)
 
         if (charc != ')')
         {
+            //current position is where a closing parenthesis was expected
             errorPosition = position;
             return 0;
         }
@@ -85,11 +91,81 @@ long long primary(void)
     errorPosition = position;
     return 0;
 }
+//look for a second *, then put the character back with ungetc
+int doubleStar(void)
+{
+    if (charc != '*')
+    {
+        return 0;
+    }
 
-//handles multiplication and division first
-long long term(void)
+    int next = fgetc(file);
+    if (next != EOF)
+    {
+        ungetc(next, file);
+    }
+
+    return next == '*';
+}
+
+//power has higher priority than multiplication and division
+long long power(void)
 {
     long long number = primary();
+
+    if (errorPosition != 0)
+    {
+        return 0;
+    }
+
+    skipSpaces();
+
+    if (doubleStar())
+    {
+        nextChar(); //first *
+        nextChar(); //second *
+        skipSpaces();
+
+        long long exponentPosition = position;
+        long long exponent = power(); //right-associative: 2**3**2 is 2**(3**2)
+
+        if (errorPosition != 0)
+        {
+            return 0;
+        }
+
+        if (exponent < 0)
+        {
+            errorPosition = exponentPosition;
+            return 0;
+        }
+
+        //square the base to calculate large exponents without a very long loop
+        long long answer = 1;
+        while (exponent > 0)
+        {
+            if (exponent % 2 == 1)
+            {
+                answer = answer * number;
+            }
+
+            exponent = exponent / 2;
+            if (exponent > 0)
+            {
+                number = number * number;
+            }
+        }
+
+        return answer;
+    }
+
+    return number;
+}
+
+//term uses power so ** is calculated before * and /
+long long term(void)
+{
+    long long number = power();
 
     while (errorPosition == 0)
     {
@@ -105,7 +181,7 @@ long long term(void)
         skipSpaces();
 
         long long rightPosition = position;
-        long long number2 = primary();
+        long long number2 = power();
 
         if (errorPosition != 0)
         {
@@ -120,6 +196,7 @@ long long term(void)
         {
             if (number2 == 0)
             {
+                //division by zero is reported at the right operand
                 errorPosition = rightPosition;
                 return 0;
             }
@@ -131,7 +208,7 @@ long long term(void)
     return number;
 }
 
-//handles addition and subtraction
+//expression uses term so * and / are calculated before + and -
 long long expression(void)
 {
     long long number = term();
@@ -170,41 +247,105 @@ long long expression(void)
 
 int main(int argcount, char *argpass[])
 {
-    //argcount counts arguments and argpass stores them
-    if (argcount < 2)
+    const char *inputName;
+    const char *outputDir = NULL;
+
+    //start with a single file and directory input (-d) will be added later
+    if (argcount == 2 && argpass[1][0] != '-')
     {
-        //checks whether filename was given
-        fprintf(stderr, "No input file\n");
+        inputName = argpass[1];
+    }
+    else if (argcount == 4 &&
+             (strcmp(argpass[1], "-o") == 0 || strcmp(argpass[1], "--output-dir") == 0) &&
+             argpass[2][0] != '\0' && argpass[3][0] != '-')
+    {
+        outputDir = argpass[2];
+        inputName = argpass[3];
+    }
+    else
+    {
+        fprintf(stderr, "Usage: calc [-o OUTDIR] input.txt\n");
         return 1;
     }
 
-    printf("File: %s\n", argpass[1]);
-
-    file = fopen(argpass[1], "r");
-
-    //checks if file could be opened
+    file = fopen(inputName, "r");
     if (file == NULL)
     {
         fprintf(stderr, "Cannot open file\n");
         return 1;
     }
 
-    printf("File opened\n");
-
-    //reworked parser because old one only worked with simple expressions
-    //reads the first character
-    charc = fgetc(file);
-
-    //calculates the expression
-    long long result = expression();
-
-    skipSpaces();
-
-    //checks for errors
-    if (errorPosition == 0 && charc != '\n' && charc != EOF)
+    //take just the filename, without its folder and .txt ending
+    const char *name = strrchr(inputName, '/');
+    if (name == NULL)
     {
-        errorPosition = position;
+        name = inputName;
     }
+    else
+    {
+        name = name + 1;
+    }
+
+    size_t nameLength = strlen(name);
+    if (nameLength >= 4 && strcmp(name + nameLength - 4, ".txt") == 0)
+    {
+        nameLength = nameLength - 4;
+    }
+
+    char *defaultDir = NULL;
+    if (outputDir == NULL)
+    {
+        size_t folderSize = nameLength + 40;
+        defaultDir = malloc(folderSize);
+        if (defaultDir == NULL)
+        {
+            fprintf(stderr, "Memory allocation failed\n");
+            fclose(file);
+            return 1;
+        }
+
+        snprintf(defaultDir, folderSize, "%.*s_kristians_251RDC075", (int)nameLength, name);
+        outputDir = defaultDir;
+    }
+
+    //create the output folder but allow an existing directory too
+    if (mkdir(outputDir, 0777) != 0)
+    {
+        struct stat info;
+        if (errno != EEXIST || stat(outputDir, &info) != 0 || !S_ISDIR(info.st_mode))
+        {
+            fprintf(stderr, "Cannot create output folder\n");
+            free(defaultDir);
+            fclose(file);
+            return 1;
+        }
+    }
+
+    size_t pathSize = strlen(outputDir) + nameLength + 60;
+    char *outputName = malloc(pathSize);
+    if (outputName == NULL)
+    {
+        fprintf(stderr, "Memory allocation failed\n");
+        free(defaultDir);
+        fclose(file);
+        return 1;
+    }
+
+    snprintf(outputName, pathSize, "%s/%.*s_kristians_ozolins_251RDC075.txt",
+             outputDir, (int)nameLength, name);
+
+    FILE *output = fopen(outputName, "w");
+    if (output == NULL)
+    {
+        fprintf(stderr, "Cannot write output file\n");
+        free(outputName);
+        free(defaultDir);
+        fclose(file);
+        return 1;
+    }
+
+    //nextChar also counts newlines and comments so positions do not reset
+    charc = fgetc(file);
 
     // OLD CALCULATOR VERSION - kept for reference
     //    long long number1 = 0;
@@ -342,17 +483,106 @@ int main(int argcount, char *argpass[])
     //    }
     // END OF OLD CALCULATOR VERSION
 
-    //new parser result
+
+    while (charc != EOF && errorPosition == 0)
+    {
+        skipSpaces();
+
+        //blank line: no result
+        if (charc == '\n')
+        {
+            nextChar();
+            continue;
+        }
+
+        //comment: ignore characters but still count their positions
+        if (charc == '#')
+        {
+            while (charc != EOF && charc != '\n')
+            {
+                nextChar();
+            }
+
+            if (charc == '\n')
+            {
+                nextChar();
+            }
+            continue;
+        }
+
+        long long result = expression();
+        skipSpaces();
+
+        //anything after the expression on its line is an error
+        if (errorPosition == 0 && charc != '\n' && charc != EOF)
+        {
+            errorPosition = position;
+        }
+
+        if (errorPosition != 0)
+        {
+            break;
+        }
+
+        if (fprintf(output, "%lld\n", result) < 0)
+        {
+            fprintf(stderr, "Cannot write output file\n");
+            fclose(output);
+            fclose(file);
+            free(outputName);
+            free(defaultDir);
+            return 1;
+        }
+
+        if (charc == '\n')
+        {
+            nextChar();
+        }
+    }
+
+    //If any expression is invalid, remove earlier results and write only ERROR.
     if (errorPosition != 0)
     {
-        printf("ERROR:%lld\n", errorPosition);
+        if (fclose(output) != 0)
+        {
+            fprintf(stderr, "Cannot write output file\n");
+            fclose(file);
+            free(outputName);
+            free(defaultDir);
+            return 1;
+        }
+        output = fopen(outputName, "w");
+        if (output == NULL || fprintf(output, "ERROR:%lld\n", errorPosition) < 0)
+        {
+            fprintf(stderr, "Cannot write output file\n");
+            if (output != NULL)
+            {
+                fclose(output);
+            }
+            fclose(file);
+            free(outputName);
+            free(defaultDir);
+            return 1;
+        }
     }
-    else
+
+    int failed = ferror(file);
+    if (fclose(output) != 0)
     {
-        printf("Result: %lld\n", result);
+        failed = 1;
+    }
+    if (fclose(file) != 0)
+    {
+        failed = 1;
     }
 
-    fclose(file);
+    free(outputName);
+    free(defaultDir);
 
+    if (failed)
+    {
+        fprintf(stderr, "File reading or writing failed\n");
+        return 1;
+    }
     return 0;
 }
